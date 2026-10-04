@@ -1,0 +1,31 @@
+"use client";
+
+import { ArrowDownRight, ArrowLeftRight, ArrowUpRight, Download, Plus, Search, Trash2 } from "lucide-react";
+import { FormEvent, useMemo, useState } from "react";
+import { Modal } from "@/components/modal";
+import { MonthPicker } from "@/components/month-picker";
+import { Message } from "@/components/toast";
+import { useFinance } from "@/lib/data-provider";
+import { CATEGORIES, type TransactionType } from "@/lib/types";
+import { inMonth, rupiah } from "@/lib/finance";
+
+export default function TransactionsPage() {
+  const { wallets, transactions, selectedMonth, addTransaction, deleteTransaction } = useFinance();
+  const [modal, setModal] = useState(false); const [type, setType] = useState<TransactionType>("expense"); const [search, setSearch] = useState(""); const [filter, setFilter] = useState("all"); const [message, setMessage] = useState("");
+  const rows = useMemo(() => transactions.filter((tx) => inMonth(tx.transaction_date, selectedMonth) && (filter === "all" || tx.type === filter) && `${tx.note} ${tx.category}`.toLowerCase().includes(search.toLowerCase())), [transactions, selectedMonth, filter, search]);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget);
+    if (type === "transfer" && String(form.get("wallet")) === String(form.get("destination"))) { setMessage("Dompet sumber dan tujuan harus berbeda."); return; }
+    try { await addTransaction({ type, wallet_id: String(form.get("wallet")), destination_wallet_id: type === "transfer" ? String(form.get("destination")) : null, amount: Number(form.get("amount")), category: type === "transfer" ? "Transfer" : String(form.get("category")), note: String(form.get("note")), transaction_date: String(form.get("date")) }); setModal(false); setMessage("Transaksi berhasil disimpan."); }
+    catch { setMessage("Transaksi gagal disimpan. Periksa data dan coba lagi."); }
+  };
+  const exportCsv = () => {
+    const csv = ["Tanggal,Jenis,Kategori,Catatan,Nominal,Dompet", ...rows.map((tx) => [tx.transaction_date,tx.type,tx.category,`"${tx.note.replaceAll('"','""')}"`,tx.amount,wallets.find(w=>w.id===tx.wallet_id)?.name].join(","))].join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); const a = document.createElement("a"); a.href = url; a.download = `rztrack-${selectedMonth}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
+  return <><div className="page-head"><div><h1>Transaksi</h1><p>Catat pemasukan, pengeluaran, dan transfer antar-dompet.</p></div><div className="page-actions"><MonthPicker/><button className="button secondary" onClick={exportCsv}><Download size={17}/> CSV</button><button className="button primary" onClick={() => setModal(true)}><Plus size={18}/>Tambah transaksi</button></div></div>
+    {message && <Message text={message}/>}<div className="card"><div className="filters"><div className="password-wrap"><input className="search" placeholder="Cari transaksi..." value={search} onChange={(e)=>setSearch(e.target.value)}/><span className="input-prefix"><Search size={17}/></span></div><select value={filter} onChange={(e)=>setFilter(e.target.value)}><option value="all">Semua jenis</option><option value="income">Pemasukan</option><option value="expense">Pengeluaran</option><option value="transfer">Transfer</option></select></div>
+    <div className="table-wrap"><table className="data-table"><thead><tr><th>Transaksi</th><th>Jenis</th><th>Dompet</th><th>Tanggal</th><th>Nominal</th><th></th></tr></thead><tbody>{rows.map((tx)=><tr key={tx.id}><td><div className="transaction-name"><span className="tx-icon">{tx.type === "income" ? <ArrowUpRight size={18}/> : tx.type === "expense" ? <ArrowDownRight size={18}/> : <ArrowLeftRight size={18}/>}</span><span><strong>{tx.note || tx.category}</strong><small style={{display:"block"}}>{tx.category}</small></span></div></td><td><span className="pill">{tx.type === "income" ? "Pemasukan" : tx.type === "expense" ? "Pengeluaran" : "Transfer"}</span></td><td>{wallets.find(w=>w.id===tx.wallet_id)?.name}</td><td>{new Intl.DateTimeFormat("id-ID",{day:"numeric",month:"short",year:"numeric"}).format(new Date(tx.transaction_date))}</td><td className={`amount ${tx.type}`}>{tx.type === "income" ? "+" : tx.type === "expense" ? "−" : ""}{rupiah(Number(tx.amount))}</td><td><button className="icon-button" onClick={()=>{if(confirm("Hapus transaksi ini?")) deleteTransaction(tx.id)}} aria-label="Hapus"><Trash2 size={17}/></button></td></tr>)}</tbody></table>{!rows.length&&<div className="empty">Tidak ada transaksi pada periode ini.</div>}</div></div>
+    {modal&&<Modal title="Tambah transaksi" onClose={()=>setModal(false)}><form className="form" onSubmit={submit}><div className="field"><label>Jenis transaksi</label><select value={type} onChange={(e)=>setType(e.target.value as TransactionType)}><option value="expense">Pengeluaran</option><option value="income">Pemasukan</option><option value="transfer">Transfer antar-dompet</option></select></div><div className="form-row"><div className="field"><label>{type === "transfer" ? "Dari dompet" : "Dompet"}</label><select name="wallet" required>{wallets.map(w=><option value={w.id} key={w.id}>{w.name}</option>)}</select></div>{type === "transfer"&&<div className="field"><label>Ke dompet</label><select name="destination" required>{wallets.map(w=><option value={w.id} key={w.id}>{w.name}</option>)}</select></div>}<div className="field"><label>Nominal</label><input name="amount" type="number" min="1" step="1" placeholder="50000" required/></div></div>{type!=="transfer"&&<div className="field"><label>Kategori</label><select name="category">{CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></div>}<div className="field"><label>Catatan</label><input name="note" maxLength={120} placeholder="Contoh: Makan siang"/></div><div className="field"><label>Tanggal</label><input name="date" type="date" defaultValue={new Date().toISOString().slice(0,10)} required/></div><div className="form-actions"><button type="button" className="button secondary" onClick={()=>setModal(false)}>Batal</button><button className="button primary">Simpan transaksi</button></div></form></Modal>}
+  </>;
+}
